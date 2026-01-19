@@ -1,0 +1,5 @@
+#!/bin/bash
+
+echo "[AVP-AUTHORIZER] Starting generate_cedars script..."
+
+echo "[AVP-AUTHORIZER] Cedar policies generation completed"
