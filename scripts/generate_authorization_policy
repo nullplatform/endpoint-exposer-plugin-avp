@@ -2,4 +2,5 @@
 
 echo "[AVP-AUTHORIZER] Starting generate_authorization_policy script..."
 echo "[AVP-AUTHORIZER] AuthorizationPolicy manifest generation completed"
+echo "[AVP-AUTHORIZER] OVERRIDES_PATH is set to '$OVERRIDES_PATH'"
 echo "[AVP-AUTHORIZER] Manifests should be available in: ${OUTPUT_DIR}"

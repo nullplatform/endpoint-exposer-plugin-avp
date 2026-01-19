@@ -1,5 +1,5 @@
 #!/bin/bash
 
 echo "[AVP-AUTHORIZER] Starting generate_cedars script..."
-
+echo "[AVP-AUTHORIZER] OVERRIDES_PATH is set to '$OVERRIDES_PATH'"
 echo "[AVP-AUTHORIZER] Cedar policies generation completed"
