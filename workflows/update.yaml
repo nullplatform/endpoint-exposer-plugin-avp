@@ -1,5 +1,5 @@
 steps:
-  - name: generate_cedars
+  - name: update_cedars
     type: script
     file: "$OVERRIDES_PATH/scripts/generate_cedars"
     before: apply
