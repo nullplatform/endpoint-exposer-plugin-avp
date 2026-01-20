@@ -50,10 +50,13 @@ if [[ ! -s "$CEDAR_POLICIES_FILE" ]]; then
     echo "$POLICY_IDS" | while read -r policy_id; do
       if [[ -n "$policy_id" ]]; then
         echo "[AVP-AUTHORIZER] Deleting policy: $policy_id"
-        aws verifiedpermissions delete-policy \
+        if ! aws verifiedpermissions delete-policy \
           --policy-store-id "$AVP_POLICY_STORE_ID" \
           --policy-id "$policy_id" \
-          --region "$AWS_REGION"
+          --region "$AWS_REGION"; then
+          echo "[AVP-AUTHORIZER] ERROR: Failed to delete policy $policy_id"
+          exit 1
+        fi
       fi
     done
     echo "[AVP-AUTHORIZER] ✅ Cedar policies deleted from AVP"
@@ -145,7 +148,7 @@ for policy_file in "$TEMP_POLICY_DIR"/policy-*.cedar; do
     # Update existing policy
     echo "[AVP-AUTHORIZER] Updating existing policy: $existing_policy_id"
 
-    # Build the definition JSON properly
+    # Build the definition JSON using --arg (not --argjson) to properly escape strings
     DEFINITION_JSON=$(jq -n \
       --arg statement "$POLICY_STATEMENT" \
       '{
@@ -154,17 +157,21 @@ for policy_file in "$TEMP_POLICY_DIR"/policy-*.cedar; do
         }
       }')
 
-    aws verifiedpermissions update-policy \
+    if ! aws verifiedpermissions update-policy \
       --policy-store-id "$AVP_POLICY_STORE_ID" \
       --policy-id "$existing_policy_id" \
       --region "$AWS_REGION" \
       --definition "$DEFINITION_JSON" \
-      --output json > /dev/null
+      --output json; then
+      echo "[AVP-AUTHORIZER] ERROR: Failed to update policy $existing_policy_id"
+      rm -rf "$TEMP_POLICY_DIR"
+      exit 1
+    fi
   else
     # Create new policy
     echo "[AVP-AUTHORIZER] Creating new policy"
 
-    # Build the definition JSON properly
+    # Build the definition JSON using --arg (not --argjson) to properly escape strings
     DEFINITION_JSON=$(jq -n \
       --arg statement "$POLICY_STATEMENT" \
       --arg description "$POLICY_DESCRIPTION" \
@@ -175,11 +182,19 @@ for policy_file in "$TEMP_POLICY_DIR"/policy-*.cedar; do
         }
       }')
 
-    aws verifiedpermissions create-policy \
+    if ! aws verifiedpermissions create-policy \
       --policy-store-id "$AVP_POLICY_STORE_ID" \
       --region "$AWS_REGION" \
       --definition "$DEFINITION_JSON" \
-      --output json > /dev/null
+      --output json; then
+      echo "[AVP-AUTHORIZER] ERROR: Failed to create policy"
+      echo "[AVP-AUTHORIZER] Policy statement:"
+      echo "$POLICY_STATEMENT"
+      echo "[AVP-AUTHORIZER] Definition JSON:"
+      echo "$DEFINITION_JSON"
+      rm -rf "$TEMP_POLICY_DIR"
+      exit 1
+    fi
   fi
 done
 
@@ -191,10 +206,14 @@ if [[ "$TOTAL_EXISTING" -gt "$POLICY_COUNT" ]]; then
     old_policy_id=$(sed -n "${i}p" "$EXISTING_IDS_FILE")
     if [[ -n "$old_policy_id" ]]; then
       echo "[AVP-AUTHORIZER] Deleting old policy: $old_policy_id"
-      aws verifiedpermissions delete-policy \
+      if ! aws verifiedpermissions delete-policy \
         --policy-store-id "$AVP_POLICY_STORE_ID" \
         --policy-id "$old_policy_id" \
-        --region "$AWS_REGION"
+        --region "$AWS_REGION"; then
+        echo "[AVP-AUTHORIZER] ERROR: Failed to delete old policy $old_policy_id"
+        rm -rf "$TEMP_POLICY_DIR"
+        exit 1
+      fi
     fi
   done
 fi
