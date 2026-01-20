@@ -29,11 +29,13 @@ endpoint-exposer-plugin-avp/
 
 ### How It Works
 
-1. **Generate Cedar Policies** - The plugin generates Cedar policies from service routes with automatic HTTP method mapping:
-   - `GET/HEAD` → `Read`
-   - `POST` → `Create`
-   - `PUT/PATCH` → `Update`
-   - `DELETE` → `Delete`
+1. **Generate Cedar Policies** - The plugin generates Cedar policies from service routes using HTTP methods directly as Cedar actions:
+   - `GET` → `GET` action
+   - `HEAD` → `GET` action (normalized)
+   - `POST` → `POST` action
+   - `PUT` → `PUT` action
+   - `PATCH` → `PATCH` action
+   - `DELETE` → `DELETE` action
 
 2. **Generate Istio AuthorizationPolicy** - Creates Istio AuthorizationPolicy manifests that reference the AVP external authorizer
 
@@ -43,15 +45,19 @@ endpoint-exposer-plugin-avp/
 
 ### Cedar Policy Format
 
-Generated Cedar policies follow this format:
+Generated Cedar policies follow this format and match the `ApiAccess` schema:
 
 ```cedar
 permit (
   principal,
-  action == EnergyDigitalHub::Action::"Read",
-  resource == EnergyDigitalHub::{ServiceId}{ServiceSlug}::"/path"
-) when {
-  context.token["custom:groups"].containsAny([
+  action == ApiAccess::Action::"GET",
+  resource
+)
+when {
+  resource.path == "/api" &&
+  resource.method == "GET" &&
+  principal.custom_claims has groups &&
+  principal.custom_claims.groups.containsAny([
     "AWS_PlataformaUpstream_Gestor_Desa",
     "AWS_PlataformaUpstream_Programador_Desa",
     "AWS_PlataformaUpstream_Pulling_Desa",
@@ -61,6 +67,15 @@ permit (
   ])
 };
 ```
+
+The policies use:
+- **Namespace**: `ApiAccess` (matches the AVP schema)
+- **Actions**: HTTP methods directly (GET, POST, PUT, PATCH, DELETE)
+- **Resource**: Generic `ApiAccess::Resource` with attributes:
+  - `path`: The route path
+  - `method`: The HTTP method
+  - `host`: The domain (optional)
+- **Principal**: `ApiAccess::User` or `ApiAccess::Group` with custom_claims containing groups
 
 ### Required Environment Variables
 

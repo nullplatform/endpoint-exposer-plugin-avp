@@ -15,24 +15,15 @@ FIXED_GROUPS='[
   "AWS_PlataformaUpstream_Administrador_Desa"
 ]'
 
-# Function to map HTTP methods to Cedar actions
-map_http_method_to_action() {
+# Function to normalize HTTP method for Cedar action
+normalize_http_method() {
   local method="$1"
   case "$method" in
-    GET|HEAD)
-      echo "Read"
-      ;;
-    POST)
-      echo "Create"
-      ;;
-    PUT|PATCH)
-      echo "Update"
-      ;;
-    DELETE)
-      echo "Delete"
+    HEAD)
+      echo "GET"  # HEAD is treated as GET
       ;;
     *)
-      echo "Read"  # Default to Read for unknown methods
+      echo "$method"  # Use method as-is (GET, POST, PUT, PATCH, DELETE)
       ;;
   esac
 }
@@ -44,28 +35,25 @@ generate_cedar_policy() {
   local route_path="$3"
   local http_method="$4"
 
-  # Map HTTP method to Cedar action
+  # Normalize HTTP method to match schema actions
   local cedar_action
-  cedar_action=$(map_http_method_to_action "$http_method")
+  cedar_action=$(normalize_http_method "$http_method")
 
-  # Use fixed resource name to avoid issues with special characters
-  local resource_name="Backend"
+  # Fixed groups for authorization
+  local groups='["AWS_PlataformaUpstream_Gestor_Desa", "AWS_PlataformaUpstream_Programador_Desa", "AWS_PlataformaUpstream_Pulling_Desa", "AWS_PlataformaUpstream_Workover_Desa", "AWS_PlataformaUpstream_Visita_Desa", "AWS_PlataformaUpstream_Administrador_Desa"]'
 
-  # Generate the Cedar policy
+  # Generate the Cedar policy matching the ApiAccess schema
   cat <<EOF
 permit (
   principal,
-  action == EnergyDigitalHub::Action::"${cedar_action}",
-  resource == EnergyDigitalHub::${resource_name}::"${route_path}"
-) when {
-  context.token["custom:groups"].containsAny([
-    "AWS_PlataformaUpstream_Gestor_Desa",
-    "AWS_PlataformaUpstream_Programador_Desa",
-    "AWS_PlataformaUpstream_Pulling_Desa",
-    "AWS_PlataformaUpstream_Workover_Desa",
-    "AWS_PlataformaUpstream_Visita_Desa",
-    "AWS_PlataformaUpstream_Administrador_Desa"
-  ])
+  action == ApiAccess::Action::"${cedar_action}",
+  resource
+)
+when {
+  resource.path == "${route_path}" &&
+  resource.method == "${cedar_action}" &&
+  principal.custom_claims has groups &&
+  principal.custom_claims.groups.containsAny(${groups})
 };
 
 EOF
