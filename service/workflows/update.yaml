@@ -10,4 +10,4 @@ steps:
   - name: apply_cedars_to_aws
     type: script
     file: "$OVERRIDES_PATH/scripts/apply_cedars_to_aws"
-    after: apply
+    before: apply
