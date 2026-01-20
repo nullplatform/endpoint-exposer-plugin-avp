@@ -78,8 +78,21 @@ mkdir -p "$CEDAR_OUTPUT_DIR"
 # Parse routes and generate Cedar policies
 echo "[AVP-AUTHORIZER] Generating Cedar policies from routes..."
 
-# Get all routes (both public and private)
-ALL_ROUTES_JSON="${ROUTES_JSON:-[]}"
+# Get all routes by combining public and private routes
+# This is necessary because ROUTES_JSON might have been overwritten by build_httproute
+PUBLIC_ROUTES="${PUBLIC_ROUTES_JSON:-[]}"
+PRIVATE_ROUTES="${PRIVATE_ROUTES_JSON:-[]}"
+
+echo "[AVP-AUTHORIZER] Public routes: $PUBLIC_ROUTES"
+echo "[AVP-AUTHORIZER] Private routes: $PRIVATE_ROUTES"
+
+# Combine both public and private routes
+ALL_ROUTES_JSON=$(jq -n \
+  --argjson public "$PUBLIC_ROUTES" \
+  --argjson private "$PRIVATE_ROUTES" \
+  '$public + $private')
+
+echo "[AVP-AUTHORIZER] Combined routes: $ALL_ROUTES_JSON"
 
 # Check if we have routes
 NUM_ROUTES=$(echo "$ALL_ROUTES_JSON" | jq 'length')
