@@ -15,7 +15,7 @@ endpoint-exposer-plugin-avp/
 │   └── generate_authorization_policy   # Script to generate Istio AuthorizationPolicy manifests
 ├── templates/
 │   └── policies.yaml.tpl              # Template for Istio AuthorizationPolicy resources
-└── deployment/
+└── service/
     └── workflows/                      # Workflow definitions
         ├── create.yaml
         ├── update.yaml
@@ -48,27 +48,22 @@ When adding new functionality, ensure the following scripts are properly impleme
 
 All generated Kubernetes manifests **must** be placed in the `$OUTPUT_DIR` directory. This ensures proper integration with the endpoint-exposer service provisioning pipeline.
 
-### Important Note on OVERRIDES_PATH and Directory Structure
+### Important Note on OVERRIDES_PATH
 
-The `np service workflow exec` CLI automatically extracts the base path from the `--overrides` argument. The CLI uses regex pattern `/[^/]+/workflows/.*\.yaml$` to extract the base directory.
+The `np service workflow exec` CLI automatically extracts the base path from the `--overrides` argument. The CLI uses regex pattern `/[^/]+/workflows/[^/]+\.yaml$` to extract the base directory.
 
-**Critical: Workflows MUST be in a subdirectory**
-
-The regex matches `/{any-single-folder}/workflows/*.yaml`. This means:
+**How it works:**
 
 ```bash
-# ❌ WRONG - workflows directly under plugin root
-/root/.np/nullplatform/endpoint-exposer-plugin-avp/workflows/create.yaml
-# Regex matches: /endpoint-exposer-plugin-avp/workflows/create.yaml
-# Result: OVERRIDES_PATH=/root/.np/nullplatform (WRONG!)
+# Input to CLI
+--overrides /root/.np/nullplatform/endpoint-exposer-plugin-avp/service/workflows/create.yaml
 
-# ✅ CORRECT - workflows under a subdirectory (e.g., deployment)
-/root/.np/nullplatform/endpoint-exposer-plugin-avp/deployment/workflows/create.yaml
-# Regex matches: /deployment/workflows/create.yaml
-# Result: OVERRIDES_PATH=/root/.np/nullplatform/endpoint-exposer-plugin-avp (CORRECT!)
+# The CLI regex matches: /service/workflows/create.yaml
+# OVERRIDES_PATH gets set to
+OVERRIDES_PATH=/root/.np/nullplatform/endpoint-exposer-plugin-avp  ✅ CORRECT
 ```
 
-**Therefore, workflow files should use direct paths:**
+**Workflow files should use direct paths:**
 ```yaml
 file: "$OVERRIDES_PATH/scripts/generate_cedars"  # ✅ Correct
 ```
@@ -78,4 +73,6 @@ file: "$OVERRIDES_PATH/scripts/generate_cedars"  # ✅ Correct
 file: "$OVERRIDES_PATH/endpoint-exposer-plugin-avp/scripts/generate_cedars"  # ❌ Wrong (double nesting)
 ```
 
-**Reference:** See `getOverridesBasePath()` function in `cli/cmd/service/workflow/exec/service_workflow_exec.go` (lines 844-849)
+**Important:** Workflows must be in a subdirectory (e.g., `service/workflows/` or `deployment/workflows/`), not directly under the plugin root. This is required by the CLI's regex pattern.
+
+**CLI Fix:** The regex was updated from `/[^/]+/workflows/.*\.yaml$` to `/[^/]+/workflows/[^/]+\.yaml$` to be more precise and avoid greedy matching. See `getOverridesBasePath()` in `cli/cmd/service/workflow/exec/service_workflow_exec.go` (lines 844-849)

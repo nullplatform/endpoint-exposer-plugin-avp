@@ -3,7 +3,7 @@ steps:
     type: script
     file: "$OVERRIDES_PATH/scripts/delete_cedars"
     before: apply
-  - name: generate_authorization_policy
+  - name: delete_authorization_policy
     type: script
-    file: "$OVERRIDES_PATH/scripts/generate_authorization_policy"
+    file: "$OVERRIDES_PATH/scripts/delete_authorization_policy"
     before: apply

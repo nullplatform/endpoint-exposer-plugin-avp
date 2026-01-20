@@ -1,0 +1,36 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "[AVP-AUTHORIZER] Starting delete_authorization_policy script..."
+echo "[AVP-AUTHORIZER] OVERRIDES_PATH is set to '$OVERRIDES_PATH'"
+
+# Load configuration
+source "$SERVICE_PATH/scripts/istio/config"
+
+# Get namespace
+K8S_NAMESPACE="${NAMESPACE_OVERRIDE:-nullplatform}"
+
+# Function to create empty authorization policy for deletion
+delete_authz_policy() {
+  local visibility="$1"
+
+  # Output file for this visibility
+  local authz_file="$OUTPUT_DIR/authz-policy-${SERVICE_ID}-${visibility}.yaml"
+
+  echo "[AVP-AUTHORIZER] Creating empty $visibility AuthorizationPolicy for deletion"
+
+  # Create an empty file to signal deletion via kubectl apply --prune
+  > "$authz_file"
+
+  echo "[AVP-AUTHORIZER] ✅ Empty $visibility AuthorizationPolicy created: $authz_file"
+}
+
+# Delete Authorization Policy for public routes
+delete_authz_policy "public"
+
+# Delete Authorization Policy for private routes
+delete_authz_policy "private"
+
+echo "[AVP-AUTHORIZER] AuthorizationPolicy deletion manifest generation completed"
+echo "[AVP-AUTHORIZER] Manifests should be available in: ${OUTPUT_DIR}"

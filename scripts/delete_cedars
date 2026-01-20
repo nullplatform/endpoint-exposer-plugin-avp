@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "[AVP-AUTHORIZER] Starting delete_cedars script..."
+echo "[AVP-AUTHORIZER] OVERRIDES_PATH is set to '$OVERRIDES_PATH'"
+
+# Create output directory for Cedar policies
+CEDAR_OUTPUT_DIR="${OUTPUT_DIR}/cedar-policies"
+mkdir -p "$CEDAR_OUTPUT_DIR"
+
+# Generate empty Cedar policies file for deletion
+CEDAR_POLICIES_FILE="$CEDAR_OUTPUT_DIR/policies-${SERVICE_ID}.cedar"
+
+# Create an empty Cedar policies file to signal deletion
+> "$CEDAR_POLICIES_FILE"
+
+echo "[AVP-AUTHORIZER] Empty Cedar policies file created for deletion: $CEDAR_POLICIES_FILE"
+echo "[AVP-AUTHORIZER] Cedar policies deletion completed"
+
+# Export the Cedar policies file path
+export CEDAR_POLICIES_FILE

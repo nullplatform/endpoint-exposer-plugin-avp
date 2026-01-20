@@ -1,5 +1,120 @@
 #!/bin/bash
 
+set -euo pipefail
+
 echo "[AVP-AUTHORIZER] Starting generate_cedars script..."
 echo "[AVP-AUTHORIZER] OVERRIDES_PATH is set to '$OVERRIDES_PATH'"
+
+# Fixed groups that will be used in all Cedar policies
+FIXED_GROUPS='[
+  "AWS_PlataformaUpstream_Gestor_Desa",
+  "AWS_PlataformaUpstream_Programador_Desa",
+  "AWS_PlataformaUpstream_Pulling_Desa",
+  "AWS_PlataformaUpstream_Workover_Desa",
+  "AWS_PlataformaUpstream_Visita_Desa",
+  "AWS_PlataformaUpstream_Administrador_Desa"
+]'
+
+# Function to map HTTP methods to Cedar actions
+map_http_method_to_action() {
+  local method="$1"
+  case "$method" in
+    GET|HEAD)
+      echo "Read"
+      ;;
+    POST)
+      echo "Create"
+      ;;
+    PUT|PATCH)
+      echo "Update"
+      ;;
+    DELETE)
+      echo "Delete"
+      ;;
+    *)
+      echo "Read"  # Default to Read for unknown methods
+      ;;
+  esac
+}
+
+# Function to generate Cedar policy for a single route
+generate_cedar_policy() {
+  local service_id="$1"
+  local service_slug="$2"
+  local route_path="$3"
+  local http_method="$4"
+
+  # Map HTTP method to Cedar action
+  local cedar_action
+  cedar_action=$(map_http_method_to_action "$http_method")
+
+  # Build resource name: ServiceId + ServiceSlug (capitalize first letter)
+  local resource_name="${service_id^}${service_slug^}"
+
+  # Generate the Cedar policy
+  cat <<EOF
+permit (
+  principal,
+  action == EnergyDigitalHub::Action::"${cedar_action}",
+  resource == EnergyDigitalHub::${resource_name}::"${route_path}"
+) when {
+  context.token["custom:groups"].containsAny([
+    "AWS_PlataformaUpstream_Gestor_Desa",
+    "AWS_PlataformaUpstream_Programador_Desa",
+    "AWS_PlataformaUpstream_Pulling_Desa",
+    "AWS_PlataformaUpstream_Workover_Desa",
+    "AWS_PlataformaUpstream_Visita_Desa",
+    "AWS_PlataformaUpstream_Administrador_Desa"
+  ])
+};
+
+EOF
+}
+
+# Create output directory for Cedar policies
+CEDAR_OUTPUT_DIR="${OUTPUT_DIR}/cedar-policies"
+mkdir -p "$CEDAR_OUTPUT_DIR"
+
+# Parse routes and generate Cedar policies
+echo "[AVP-AUTHORIZER] Generating Cedar policies from routes..."
+
+# Get all routes (both public and private)
+ALL_ROUTES_JSON="${ROUTES_JSON:-[]}"
+
+# Check if we have routes
+NUM_ROUTES=$(echo "$ALL_ROUTES_JSON" | jq 'length')
+echo "[AVP-AUTHORIZER] Found $NUM_ROUTES route(s) to process"
+
+if [[ "$NUM_ROUTES" -eq 0 ]]; then
+  echo "[AVP-AUTHORIZER] No routes to process, skipping Cedar policy generation"
+  exit 0
+fi
+
+# Generate Cedar policies file
+CEDAR_POLICIES_FILE="$CEDAR_OUTPUT_DIR/policies-${SERVICE_ID}.cedar"
+
+# Initialize the Cedar policies file
+> "$CEDAR_POLICIES_FILE"
+
+# Process each route
+echo "$ALL_ROUTES_JSON" | jq -c '.[]' | while IFS= read -r route; do
+  route_path=$(echo "$route" | jq -r '.path // ""')
+  http_method=$(echo "$route" | jq -r '.method // "GET"')
+
+  # Skip routes without path
+  if [[ -z "$route_path" ]] || [[ "$route_path" == "null" ]]; then
+    echo "[AVP-AUTHORIZER] Skipping route without path"
+    continue
+  fi
+
+  echo "[AVP-AUTHORIZER] Generating Cedar policy for $http_method $route_path"
+
+  # Generate and append Cedar policy
+  generate_cedar_policy "$SERVICE_ID" "$SERVICE_SLUG" "$route_path" "$http_method" >> "$CEDAR_POLICIES_FILE"
+done
+
+echo "[AVP-AUTHORIZER] Cedar policies generated: $CEDAR_POLICIES_FILE"
 echo "[AVP-AUTHORIZER] Cedar policies generation completed"
+
+# Export the Cedar policies file path
+export CEDAR_POLICIES_FILE
