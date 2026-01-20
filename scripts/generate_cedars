@@ -96,8 +96,8 @@ CEDAR_POLICIES_FILE="$CEDAR_OUTPUT_DIR/policies-${SERVICE_ID}.cedar"
 # Initialize the Cedar policies file
 > "$CEDAR_POLICIES_FILE"
 
-# Process each route
-echo "$ALL_ROUTES_JSON" | jq -c '.[]' | while IFS= read -r route; do
+# Process each route using process substitution to avoid subshell issues
+while IFS= read -r route; do
   route_path=$(echo "$route" | jq -r '.path // ""')
   http_method=$(echo "$route" | jq -r '.method // "GET"')
 
@@ -111,7 +111,7 @@ echo "$ALL_ROUTES_JSON" | jq -c '.[]' | while IFS= read -r route; do
 
   # Generate and append Cedar policy
   generate_cedar_policy "$SERVICE_ID" "$SERVICE_SLUG" "$route_path" "$http_method" >> "$CEDAR_POLICIES_FILE"
-done
+done < <(echo "$ALL_ROUTES_JSON" | jq -c '.[]')
 
 echo "[AVP-AUTHORIZER] Cedar policies generated: $CEDAR_POLICIES_FILE"
 echo "[AVP-AUTHORIZER] Cedar policies generation completed"
