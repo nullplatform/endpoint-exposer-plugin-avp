@@ -44,7 +44,7 @@ if [[ ! -s "$CEDAR_POLICIES_FILE" ]]; then
     --policy-store-id "$AVP_POLICY_STORE_ID" \
     --region "$AWS_REGION" \
     --output json | \
-    jq -r ".policies[] | select(.description? | contains(\"service-id:$SERVICE_ID\")) | .policyId")
+    jq -r ".policies[] | select(.description and (.description | contains(\"service-id:$SERVICE_ID\"))) | .policyId")
 
   if [[ -n "$POLICY_IDS" ]]; then
     echo "$POLICY_IDS" | while read -r policy_id; do
@@ -107,7 +107,7 @@ EXISTING_POLICY_IDS=$(aws verifiedpermissions list-policies \
   --policy-store-id "$AVP_POLICY_STORE_ID" \
   --region "$AWS_REGION" \
   --output json | \
-  jq -r ".policies[] | select(.description? | contains(\"service-id:$SERVICE_ID\")) | .policyId")
+  jq -r ".policies[] | select(.description and (.description | contains(\"service-id:$SERVICE_ID\"))) | .policyId")
 
 # Store existing policy IDs in a file for tracking
 EXISTING_IDS_FILE="$TEMP_POLICY_DIR/existing-ids.txt"
@@ -144,19 +144,41 @@ for policy_file in "$TEMP_POLICY_DIR"/policy-*.cedar; do
   if [[ -n "$existing_policy_id" ]]; then
     # Update existing policy
     echo "[AVP-AUTHORIZER] Updating existing policy: $existing_policy_id"
+
+    # Build the definition JSON properly
+    DEFINITION_JSON=$(jq -n \
+      --arg statement "$POLICY_STATEMENT" \
+      '{
+        static: {
+          statement: $statement
+        }
+      }')
+
     aws verifiedpermissions update-policy \
       --policy-store-id "$AVP_POLICY_STORE_ID" \
       --policy-id "$existing_policy_id" \
       --region "$AWS_REGION" \
-      --definition "static={statement=$(echo "$POLICY_STATEMENT" | jq -Rs .)}" \
+      --definition "$DEFINITION_JSON" \
       --output json > /dev/null
   else
     # Create new policy
     echo "[AVP-AUTHORIZER] Creating new policy"
+
+    # Build the definition JSON properly
+    DEFINITION_JSON=$(jq -n \
+      --arg statement "$POLICY_STATEMENT" \
+      --arg description "$POLICY_DESCRIPTION" \
+      '{
+        static: {
+          statement: $statement,
+          description: $description
+        }
+      }')
+
     aws verifiedpermissions create-policy \
       --policy-store-id "$AVP_POLICY_STORE_ID" \
       --region "$AWS_REGION" \
-      --definition "static={statement=$(echo "$POLICY_STATEMENT" | jq -Rs .),description=$(echo "$POLICY_DESCRIPTION" | jq -Rs .)}" \
+      --definition "$DEFINITION_JSON" \
       --output json > /dev/null
   fi
 done
