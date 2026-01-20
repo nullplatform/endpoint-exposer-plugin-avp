@@ -7,3 +7,7 @@ steps:
     type: script
     file: "$OVERRIDES_PATH/scripts/delete_authorization_policy"
     before: apply
+  - name: apply_cedars_to_aws
+    type: script
+    file: "$OVERRIDES_PATH/scripts/apply_cedars_to_aws"
+    after: apply

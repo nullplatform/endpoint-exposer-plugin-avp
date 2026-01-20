@@ -12,7 +12,10 @@ The AVP Authorizer plugin generates Kubernetes manifests for implementing fine-g
 endpoint-exposer-plugin-avp/
 ├── scripts/
 │   ├── generate_cedars                 # Script to generate Cedar policy files
-│   └── generate_authorization_policy   # Script to generate Istio AuthorizationPolicy manifests
+│   ├── generate_authorization_policy   # Script to generate Istio AuthorizationPolicy manifests
+│   ├── apply_cedars_to_aws            # Script to apply Cedar policies to AWS Verified Permissions
+│   ├── delete_cedars                  # Script to mark Cedar policies for deletion
+│   └── delete_authorization_policy    # Script to mark AuthorizationPolicies for deletion
 ├── templates/
 │   └── policies.yaml.tpl              # Template for Istio AuthorizationPolicy resources
 └── service/
@@ -26,9 +29,46 @@ endpoint-exposer-plugin-avp/
 
 ### How It Works
 
-1. The plugin generates Cedar policies for AWS Verified Permissions
-2. It creates Istio AuthorizationPolicy manifests that reference the external authorizer
-3. Generated manifests are stored in `$OUTPUT_DIR` for deployment to Kubernetes
+1. **Generate Cedar Policies** - The plugin generates Cedar policies from service routes with automatic HTTP method mapping:
+   - `GET/HEAD` → `Read`
+   - `POST` → `Create`
+   - `PUT/PATCH` → `Update`
+   - `DELETE` → `Delete`
+
+2. **Generate Istio AuthorizationPolicy** - Creates Istio AuthorizationPolicy manifests that reference the AVP external authorizer
+
+3. **Apply to Kubernetes** - Generated manifests are applied to the Kubernetes cluster
+
+4. **Sync to AWS** - Cedar policies are automatically applied to AWS Verified Permissions using the AWS CLI
+
+### Cedar Policy Format
+
+Generated Cedar policies follow this format:
+
+```cedar
+permit (
+  principal,
+  action == EnergyDigitalHub::Action::"Read",
+  resource == EnergyDigitalHub::{ServiceId}{ServiceSlug}::"/path"
+) when {
+  context.token["custom:groups"].containsAny([
+    "AWS_PlataformaUpstream_Gestor_Desa",
+    "AWS_PlataformaUpstream_Programador_Desa",
+    "AWS_PlataformaUpstream_Pulling_Desa",
+    "AWS_PlataformaUpstream_Workover_Desa",
+    "AWS_PlataformaUpstream_Visita_Desa",
+    "AWS_PlataformaUpstream_Administrador_Desa"
+  ])
+};
+```
+
+### Required Environment Variables
+
+For AWS Verified Permissions integration:
+
+- `AVP_POLICY_STORE_ID` - The AWS Verified Permissions Policy Store ID (required)
+- `AWS_REGION` - AWS region (defaults to `us-east-1`)
+- AWS credentials must be configured (via AWS CLI configuration, environment variables, or IAM roles)
 
 
 ### Required Scripts

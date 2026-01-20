@@ -1,0 +1,184 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "[AVP-AUTHORIZER] Starting apply_cedars_to_aws script..."
+
+# Check if AWS CLI is available
+if ! command -v aws &> /dev/null; then
+  echo "[AVP-AUTHORIZER] ERROR: AWS CLI not found. Please install AWS CLI."
+  exit 1
+fi
+
+# Configuration - estos valores deberían venir de variables de entorno o configuración
+AVP_POLICY_STORE_ID="${AVP_POLICY_STORE_ID:-}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+
+if [[ -z "$AVP_POLICY_STORE_ID" ]]; then
+  echo "[AVP-AUTHORIZER] ERROR: AVP_POLICY_STORE_ID environment variable is required"
+  exit 1
+fi
+
+echo "[AVP-AUTHORIZER] Policy Store ID: $AVP_POLICY_STORE_ID"
+echo "[AVP-AUTHORIZER] AWS Region: $AWS_REGION"
+
+# Cedar policies file path
+CEDAR_OUTPUT_DIR="${OUTPUT_DIR}/cedar-policies"
+CEDAR_POLICIES_FILE="$CEDAR_OUTPUT_DIR/policies-${SERVICE_ID}.cedar"
+
+if [[ ! -f "$CEDAR_POLICIES_FILE" ]]; then
+  echo "[AVP-AUTHORIZER] No Cedar policies file found at: $CEDAR_POLICIES_FILE"
+  exit 0
+fi
+
+# Check if file is empty (indicates deletion)
+if [[ ! -s "$CEDAR_POLICIES_FILE" ]]; then
+  echo "[AVP-AUTHORIZER] Empty Cedar policies file detected - triggering deletion"
+
+  # List and delete existing policies for this service
+  echo "[AVP-AUTHORIZER] Searching for existing policies for service: $SERVICE_ID"
+
+  # Get all policies and filter by description or policy content
+  # We'll use a tag or description pattern to identify our policies
+  POLICY_IDS=$(aws verifiedpermissions list-policies \
+    --policy-store-id "$AVP_POLICY_STORE_ID" \
+    --region "$AWS_REGION" \
+    --output json | \
+    jq -r ".policies[] | select(.description? | contains(\"service-id:$SERVICE_ID\")) | .policyId")
+
+  if [[ -n "$POLICY_IDS" ]]; then
+    echo "$POLICY_IDS" | while read -r policy_id; do
+      if [[ -n "$policy_id" ]]; then
+        echo "[AVP-AUTHORIZER] Deleting policy: $policy_id"
+        aws verifiedpermissions delete-policy \
+          --policy-store-id "$AVP_POLICY_STORE_ID" \
+          --policy-id "$policy_id" \
+          --region "$AWS_REGION"
+      fi
+    done
+    echo "[AVP-AUTHORIZER] ✅ Cedar policies deleted from AVP"
+  else
+    echo "[AVP-AUTHORIZER] No existing policies found for service: $SERVICE_ID"
+  fi
+
+  exit 0
+fi
+
+# Split the Cedar file into individual policies
+echo "[AVP-AUTHORIZER] Processing Cedar policies from: $CEDAR_POLICIES_FILE"
+
+# Create temporary directory for individual policies
+TEMP_POLICY_DIR="$CEDAR_OUTPUT_DIR/temp-policies"
+mkdir -p "$TEMP_POLICY_DIR"
+
+# Split Cedar file by empty lines (each policy is separated by blank line)
+awk -v dir="$TEMP_POLICY_DIR" '
+  BEGIN { policy_num = 0; file = "" }
+  /^[[:space:]]*$/ {
+    if (file != "") {
+      close(file)
+      file = ""
+    }
+    next
+  }
+  {
+    if (file == "") {
+      policy_num++
+      file = dir "/policy-" policy_num ".cedar"
+    }
+    print > file
+  }
+  END { if (file != "") close(file) }
+' "$CEDAR_POLICIES_FILE"
+
+# Count policies
+POLICY_COUNT=$(find "$TEMP_POLICY_DIR" -name "*.cedar" -type f | wc -l | tr -d ' ')
+echo "[AVP-AUTHORIZER] Found $POLICY_COUNT Cedar policy(ies) to apply"
+
+if [[ "$POLICY_COUNT" -eq 0 ]]; then
+  echo "[AVP-AUTHORIZER] No policies to apply"
+  rm -rf "$TEMP_POLICY_DIR"
+  exit 0
+fi
+
+# Get existing policies for this service to update/delete
+echo "[AVP-AUTHORIZER] Fetching existing policies for service: $SERVICE_ID"
+EXISTING_POLICY_IDS=$(aws verifiedpermissions list-policies \
+  --policy-store-id "$AVP_POLICY_STORE_ID" \
+  --region "$AWS_REGION" \
+  --output json | \
+  jq -r ".policies[] | select(.description? | contains(\"service-id:$SERVICE_ID\")) | .policyId")
+
+# Store existing policy IDs in a file for tracking
+EXISTING_IDS_FILE="$TEMP_POLICY_DIR/existing-ids.txt"
+if [[ -n "$EXISTING_POLICY_IDS" ]]; then
+  echo "$EXISTING_POLICY_IDS" > "$EXISTING_IDS_FILE"
+else
+  touch "$EXISTING_IDS_FILE"
+fi
+
+# Apply each policy
+policy_index=0
+for policy_file in "$TEMP_POLICY_DIR"/policy-*.cedar; do
+  policy_index=$((policy_index + 1))
+
+  if [[ ! -f "$policy_file" ]]; then
+    continue
+  fi
+
+  echo "[AVP-AUTHORIZER] Processing policy $policy_index of $POLICY_COUNT"
+
+  # Read policy content
+  POLICY_STATEMENT=$(cat "$policy_file")
+
+  # Create description with service metadata
+  POLICY_DESCRIPTION="Cedar policy for service-id:$SERVICE_ID service-slug:$SERVICE_SLUG policy-index:$policy_index"
+
+  # Check if we should update an existing policy or create new one
+  # For simplicity, we'll try to match by index
+  existing_policy_id=""
+  if [[ -s "$EXISTING_IDS_FILE" ]]; then
+    existing_policy_id=$(sed -n "${policy_index}p" "$EXISTING_IDS_FILE")
+  fi
+
+  if [[ -n "$existing_policy_id" ]]; then
+    # Update existing policy
+    echo "[AVP-AUTHORIZER] Updating existing policy: $existing_policy_id"
+    aws verifiedpermissions update-policy \
+      --policy-store-id "$AVP_POLICY_STORE_ID" \
+      --policy-id "$existing_policy_id" \
+      --region "$AWS_REGION" \
+      --definition "static={statement=$(echo "$POLICY_STATEMENT" | jq -Rs .)}" \
+      --output json > /dev/null
+  else
+    # Create new policy
+    echo "[AVP-AUTHORIZER] Creating new policy"
+    aws verifiedpermissions create-policy \
+      --policy-store-id "$AVP_POLICY_STORE_ID" \
+      --region "$AWS_REGION" \
+      --definition "static={statement=$(echo "$POLICY_STATEMENT" | jq -Rs .),description=$(echo "$POLICY_DESCRIPTION" | jq -Rs .)}" \
+      --output json > /dev/null
+  fi
+done
+
+# Delete any remaining old policies that weren't updated
+TOTAL_EXISTING=$(wc -l < "$EXISTING_IDS_FILE" | tr -d ' ')
+if [[ "$TOTAL_EXISTING" -gt "$POLICY_COUNT" ]]; then
+  echo "[AVP-AUTHORIZER] Cleaning up old policies..."
+  for ((i=POLICY_COUNT+1; i<=TOTAL_EXISTING; i++)); do
+    old_policy_id=$(sed -n "${i}p" "$EXISTING_IDS_FILE")
+    if [[ -n "$old_policy_id" ]]; then
+      echo "[AVP-AUTHORIZER] Deleting old policy: $old_policy_id"
+      aws verifiedpermissions delete-policy \
+        --policy-store-id "$AVP_POLICY_STORE_ID" \
+        --policy-id "$old_policy_id" \
+        --region "$AWS_REGION"
+    fi
+  done
+fi
+
+# Cleanup
+rm -rf "$TEMP_POLICY_DIR"
+
+echo "[AVP-AUTHORIZER] ✅ Cedar policies applied to AWS Verified Permissions"
+echo "[AVP-AUTHORIZER] Applied $POLICY_COUNT policy(ies) successfully"
