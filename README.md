@@ -44,3 +44,26 @@ When adding new functionality, ensure the following scripts are properly impleme
 ### Output Directory
 
 All generated Kubernetes manifests **must** be placed in the `$OUTPUT_DIR` directory. This ensures proper integration with the endpoint-exposer service provisioning pipeline.
+
+### Important Note on OVERRIDES_PATH
+
+The `np service workflow exec` CLI internally modifies the `OVERRIDES_PATH` environment variable. When a workflow file is passed via `--overrides`, the CLI sets `OVERRIDES_PATH` to the parent directory of the workflows directory.
+
+**Example:**
+```bash
+# Input to CLI
+--overrides /root/.np/nullplatform/endpoint-exposer-plugin-avp/workflows/create.yaml
+
+# OVERRIDES_PATH gets set to
+OVERRIDES_PATH=/root/.np/nullplatform
+```
+
+**This is why workflow files must use the full plugin path:**
+```yaml
+file: "$OVERRIDES_PATH/endpoint-exposer-plugin-avp/scripts/generate_cedars"
+```
+
+Instead of just:
+```yaml
+file: "$OVERRIDES_PATH/scripts/generate_cedars"  # ❌ This won't work
+```

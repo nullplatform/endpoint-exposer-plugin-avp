@@ -1,9 +1,9 @@
 steps:
   - name: generate_cedars
     type: script
-    file: "$OVERRIDES_PATH/endpoint-exposer-plugin-avp/scripts/generate_cedars"
+    file: "$OVERRIDES_PATH/scripts/generate_cedars"
     before: apply
   - name: generate_authorization_policy
     type: script
-    file: "$OVERRIDES_PATH/endpoint-exposer-plugin-avp/scripts/generate_authorization_policy"
+    file: "$OVERRIDES_PATH/scripts/generate_authorization_policy"
     before: apply
