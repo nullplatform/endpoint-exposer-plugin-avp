@@ -48,8 +48,8 @@ generate_cedar_policy() {
   local cedar_action
   cedar_action=$(map_http_method_to_action "$http_method")
 
-  # Build resource name: ServiceId + ServiceSlug (capitalize first letter)
-  local resource_name="${service_id^}${service_slug^}"
+  # Use fixed resource name to avoid issues with special characters
+  local resource_name="Backend"
 
   # Generate the Cedar policy
   cat <<EOF
