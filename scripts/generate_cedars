@@ -83,9 +83,6 @@ echo "[AVP-AUTHORIZER] Generating Cedar policies from routes..."
 PUBLIC_ROUTES="${PUBLIC_ROUTES_JSON:-[]}"
 PRIVATE_ROUTES="${PRIVATE_ROUTES_JSON:-[]}"
 
-echo "[AVP-AUTHORIZER] Public routes: $PUBLIC_ROUTES"
-echo "[AVP-AUTHORIZER] Private routes: $PRIVATE_ROUTES"
-
 # Combine both public and private routes
 ALL_ROUTES_JSON=$(jq -n \
   --argjson public "$PUBLIC_ROUTES" \
