@@ -2,7 +2,7 @@ apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
   name: avp-ext-authz-{{ .service_slug }}-{{ .service_id }}
-  namespace: {{ .k8s_namespace }}
+  namespace: gateways
   labels:
     app.kubernetes.io/component: authorization
     app.kubernetes.io/managed-by: endpoint-exposer

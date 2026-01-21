@@ -5,16 +5,6 @@ set -euo pipefail
 echo "[AVP-AUTHORIZER] Starting generate_cedars script..."
 echo "[AVP-AUTHORIZER] OVERRIDES_PATH is set to '$OVERRIDES_PATH'"
 
-# Fixed groups that will be used in all Cedar policies
-FIXED_GROUPS='[
-  "AWS_PlataformaUpstream_Gestor_Desa",
-  "AWS_PlataformaUpstream_Programador_Desa",
-  "AWS_PlataformaUpstream_Pulling_Desa",
-  "AWS_PlataformaUpstream_Workover_Desa",
-  "AWS_PlataformaUpstream_Visita_Desa",
-  "AWS_PlataformaUpstream_Administrador_Desa"
-]'
-
 # Function to normalize HTTP method for Cedar action
 normalize_http_method() {
   local method="$1"
@@ -34,16 +24,16 @@ generate_cedar_policy() {
   local service_slug="$2"
   local route_path="$3"
   local http_method="$4"
+  local groups_json="$5"
 
   # Normalize HTTP method to match schema actions
   local cedar_action
   cedar_action=$(normalize_http_method "$http_method")
 
-  # Fixed groups for authorization
-  local groups='["AWS_PlataformaUpstream_Gestor_Desa", "AWS_PlataformaUpstream_Programador_Desa", "AWS_PlataformaUpstream_Pulling_Desa", "AWS_PlataformaUpstream_Workover_Desa", "AWS_PlataformaUpstream_Visita_Desa", "AWS_PlataformaUpstream_Administrador_Desa"]'
-
-  # Generate the Cedar policy matching the ApiAccess schema
-  cat <<EOF
+  # Check if groups are provided
+  if [[ -n "$groups_json" ]] && [[ "$groups_json" != "null" ]] && [[ "$groups_json" != "[]" ]]; then
+    # Generate policy WITH group restrictions
+    cat <<EOF
 permit (
   principal,
   action == ApiAccess::Action::"${cedar_action}",
@@ -52,10 +42,25 @@ permit (
 when {
   resource.path == "${route_path}" &&
   resource.method == "${cedar_action}" &&
-  context.token["custom:groups"].containsAny(${groups})
+  context.token["custom:groups"].containsAny(${groups_json})
 };
 
 EOF
+  else
+    # Generate policy WITHOUT group restrictions (open access)
+    cat <<EOF
+permit (
+  principal,
+  action == ApiAccess::Action::"${cedar_action}",
+  resource
+)
+when {
+  resource.path == "${route_path}" &&
+  resource.method == "${cedar_action}"
+};
+
+EOF
+  fi
 }
 
 # Create output directory for Cedar policies
@@ -99,6 +104,7 @@ for ((i=0; i<ROUTE_COUNT; i++)); do
   route=$(echo "$ALL_ROUTES_JSON" | jq -c ".[$i]")
   route_path=$(echo "$route" | jq -r '.path // ""')
   http_method=$(echo "$route" | jq -r '.method // "GET"')
+  route_groups=$(echo "$route" | jq -c '.groups // []')
 
   # Skip routes without path
   if [[ -z "$route_path" ]] || [[ "$route_path" == "null" ]]; then
@@ -106,10 +112,10 @@ for ((i=0; i<ROUTE_COUNT; i++)); do
     continue
   fi
 
-  echo "[AVP-AUTHORIZER] Generating Cedar policy for $http_method $route_path"
+  echo "[AVP-AUTHORIZER] Generating Cedar policy for $http_method $route_path with groups: $route_groups"
 
   # Generate and append Cedar policy
-  generate_cedar_policy "$SERVICE_ID" "$SERVICE_SLUG" "$route_path" "$http_method" >> "$CEDAR_POLICIES_FILE"
+  generate_cedar_policy "$SERVICE_ID" "$SERVICE_SLUG" "$route_path" "$http_method" "$route_groups" >> "$CEDAR_POLICIES_FILE"
 done
 
 echo "[AVP-AUTHORIZER] Cedar policies generated: $CEDAR_POLICIES_FILE"
