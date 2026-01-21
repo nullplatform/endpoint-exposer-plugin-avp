@@ -44,7 +44,7 @@ if [[ ! -s "$CEDAR_POLICIES_FILE" ]]; then
     --policy-store-id "$AVP_POLICY_STORE_ID" \
     --region "$AWS_REGION" \
     --output json | \
-    jq -r ".policies[] | select(.description and (.description | contains(\"service-id:$SERVICE_ID\"))) | .policyId")
+    jq -r ".policies[] | select(.definition.static.description and (.definition.static.description | contains(\"service-id:$SERVICE_ID\"))) | .policyId")
 
   if [[ -n "$POLICY_IDS" ]]; then
     echo "$POLICY_IDS" | while read -r policy_id; do
@@ -110,7 +110,7 @@ EXISTING_POLICY_IDS=$(aws verifiedpermissions list-policies \
   --policy-store-id "$AVP_POLICY_STORE_ID" \
   --region "$AWS_REGION" \
   --output json | \
-  jq -r ".policies[] | select(.description and (.description | contains(\"service-id:$SERVICE_ID\"))) | .policyId")
+  jq -r ".policies[] | select(.definition.static.description and (.definition.static.description | contains(\"service-id:$SERVICE_ID\"))) | .policyId")
 
 # Store existing policy IDs in a file for tracking
 EXISTING_IDS_FILE="$TEMP_POLICY_DIR/existing-ids.txt"
