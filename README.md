@@ -56,15 +56,7 @@ permit (
 when {
   resource.path == "/api" &&
   resource.method == "GET" &&
-  principal.custom_claims has groups &&
-  principal.custom_claims.groups.containsAny([
-    "AWS_PlataformaUpstream_Gestor_Desa",
-    "AWS_PlataformaUpstream_Programador_Desa",
-    "AWS_PlataformaUpstream_Pulling_Desa",
-    "AWS_PlataformaUpstream_Workover_Desa",
-    "AWS_PlataformaUpstream_Visita_Desa",
-    "AWS_PlataformaUpstream_Administrador_Desa"
-  ])
+  context.token["custom:groups"].containsAny(["AWS_PlataformaUpstream_Gestor_Desa", "AWS_PlataformaUpstream_Programador_Desa", "AWS_PlataformaUpstream_Pulling_Desa", "AWS_PlataformaUpstream_Workover_Desa", "AWS_PlataformaUpstream_Visita_Desa", "AWS_PlataformaUpstream_Administrador_Desa"])
 };
 ```
 

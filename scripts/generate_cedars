@@ -52,8 +52,7 @@ permit (
 when {
   resource.path == "${route_path}" &&
   resource.method == "${cedar_action}" &&
-  principal.custom_claims has groups &&
-  principal.custom_claims.groups.containsAny(${groups})
+  context.token["custom:groups"].containsAny(${groups})
 };
 
 EOF
