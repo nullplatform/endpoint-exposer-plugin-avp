@@ -151,9 +151,11 @@ for policy_file in "$TEMP_POLICY_DIR"/policy-*.cedar; do
     # Build the definition JSON using --arg (not --argjson) to properly escape strings
     DEFINITION_JSON=$(jq -n \
       --arg statement "$POLICY_STATEMENT" \
+      --arg description "$POLICY_DESCRIPTION" \
       '{
         static: {
-          statement: $statement
+          statement: $statement,
+          description: $description
         }
       }')
 
