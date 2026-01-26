@@ -1,0 +1,13 @@
+steps:
+  - name: update_cedars
+    type: script
+    file: "$OVERRIDES_PATH/scripts/generate_cedars"
+    before: apply
+  - name: generate_authorization_policy
+    type: script
+    file: "$OVERRIDES_PATH/scripts/generate_authorization_policy"
+    before: apply
+  - name: apply_cedars_to_aws
+    type: script
+    file: "$OVERRIDES_PATH/scripts/apply_cedars_to_aws"
+    before: apply

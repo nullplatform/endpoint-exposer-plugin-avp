@@ -1,0 +1,13 @@
+steps:
+  - name: delete_cedars
+    type: script
+    file: "$OVERRIDES_PATH/scripts/delete_cedars"
+    before: apply
+  - name: delete_authorization_policy
+    type: script
+    file: "$OVERRIDES_PATH/scripts/delete_authorization_policy"
+    before: apply
+  - name: apply_cedars_to_aws
+    type: script
+    file: "$OVERRIDES_PATH/scripts/apply_cedars_to_aws"
+    after: apply

@@ -1,0 +1,125 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "[AVP-AUTHORIZER] Starting generate_cedars script..."
+echo "[AVP-AUTHORIZER] OVERRIDES_PATH is set to '$OVERRIDES_PATH'"
+
+# Function to normalize HTTP method for Cedar action
+normalize_http_method() {
+  local method="$1"
+  case "$method" in
+    HEAD)
+      echo "GET"  # HEAD is treated as GET
+      ;;
+    *)
+      echo "$method"  # Use method as-is (GET, POST, PUT, PATCH, DELETE)
+      ;;
+  esac
+}
+
+# Function to generate Cedar policy for a single route
+generate_cedar_policy() {
+  local service_id="$1"
+  local service_slug="$2"
+  local route_path="$3"
+  local http_method="$4"
+  local groups_json="$5"
+
+  # Normalize HTTP method to match schema actions
+  local cedar_action
+  cedar_action=$(normalize_http_method "$http_method")
+
+  # Check if groups are provided
+  if [[ -n "$groups_json" ]] && [[ "$groups_json" != "null" ]] && [[ "$groups_json" != "[]" ]]; then
+    # Generate policy WITH group restrictions
+    cat <<EOF
+permit (
+  principal,
+  action == ApiAccess::Action::"${cedar_action}",
+  resource
+)
+when {
+  resource.path == "${route_path}" &&
+  resource.method == "${cedar_action}" &&
+  context.token["custom:groups"].containsAny(${groups_json})
+};
+
+EOF
+  else
+    # Generate policy WITHOUT group restrictions (open access)
+    cat <<EOF
+permit (
+  principal,
+  action == ApiAccess::Action::"${cedar_action}",
+  resource
+)
+when {
+  resource.path == "${route_path}" &&
+  resource.method == "${cedar_action}"
+};
+
+EOF
+  fi
+}
+
+# Create output directory for Cedar policies
+CEDAR_OUTPUT_DIR="${OUTPUT_DIR}/cedar-policies"
+mkdir -p "$CEDAR_OUTPUT_DIR"
+
+# Parse routes and generate Cedar policies
+echo "[AVP-AUTHORIZER] Generating Cedar policies from routes..."
+
+# Get all routes by combining public and private routes
+# This is necessary because ROUTES_JSON might have been overwritten by build_httproute
+PUBLIC_ROUTES="${PUBLIC_ROUTES_JSON:-[]}"
+PRIVATE_ROUTES="${PRIVATE_ROUTES_JSON:-[]}"
+
+# Combine both public and private routes
+ALL_ROUTES_JSON=$(jq -n \
+  --argjson public "$PUBLIC_ROUTES" \
+  --argjson private "$PRIVATE_ROUTES" \
+  '$public + $private')
+
+echo "[AVP-AUTHORIZER] Combined routes: $ALL_ROUTES_JSON"
+
+# Check if we have routes
+NUM_ROUTES=$(echo "$ALL_ROUTES_JSON" | jq 'length')
+echo "[AVP-AUTHORIZER] Found $NUM_ROUTES route(s) to process"
+
+if [[ "$NUM_ROUTES" -eq 0 ]]; then
+  echo "[AVP-AUTHORIZER] No routes to process, skipping Cedar policy generation"
+  exit 0
+fi
+
+# Generate Cedar policies file
+CEDAR_POLICIES_FILE="$CEDAR_OUTPUT_DIR/policies-${SERVICE_ID}.cedar"
+
+# Initialize the Cedar policies file
+> "$CEDAR_POLICIES_FILE"
+
+# Build array of routes to avoid subshell issues
+ROUTE_COUNT=$(echo "$ALL_ROUTES_JSON" | jq 'length')
+for ((i=0; i<ROUTE_COUNT; i++)); do
+  route=$(echo "$ALL_ROUTES_JSON" | jq -c ".[$i]")
+  route_path=$(echo "$route" | jq -r '.path // ""')
+  http_method=$(echo "$route" | jq -r '.method // "GET"')
+  route_groups=$(echo "$route" | jq -c '.groups // []')
+
+  # Skip routes without path
+  if [[ -z "$route_path" ]] || [[ "$route_path" == "null" ]]; then
+    echo "[AVP-AUTHORIZER] Skipping route without path"
+    continue
+  fi
+
+  echo "[AVP-AUTHORIZER] Generating Cedar policy for $http_method $route_path with groups: $route_groups"
+
+  # Generate and append Cedar policy
+  generate_cedar_policy "$SERVICE_ID" "$SERVICE_SLUG" "$route_path" "$http_method" "$route_groups" >> "$CEDAR_POLICIES_FILE"
+done
+
+echo "[AVP-AUTHORIZER] Cedar policies generated: $CEDAR_POLICIES_FILE"
+echo "[AVP-AUTHORIZER] Cedar policies generation completed"
+
+# Export the Cedar policies file path
+export CEDAR_POLICIES_FILE

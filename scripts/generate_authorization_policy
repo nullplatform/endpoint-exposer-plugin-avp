@@ -1,0 +1,103 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "[AVP-AUTHORIZER] Starting generate_authorization_policy script..."
+echo "[AVP-AUTHORIZER] OVERRIDES_PATH is set to '$OVERRIDES_PATH'"
+
+# Load configuration
+source "$SERVICE_PATH/scripts/istio/config"
+
+# Function to generate authorization policy for a specific visibility
+generate_authz_policy() {
+  local visibility="$1"
+  local routes_json="$2"
+  local domain="$3"
+  local gateway_name="$4"
+
+  # Check if we have routes and domain
+  local num_routes
+  num_routes=$(echo "$routes_json" | jq 'length')
+
+  echo "[AVP-AUTHORIZER] Processing $visibility routes: $num_routes route(s)"
+  echo "[AVP-AUTHORIZER] Domain: '$domain'"
+
+  # Check if domain is empty/null
+  if [[ -z "$domain" ]] || [[ "$domain" == "null" ]] || [[ "$domain" == "\"null\"" ]]; then
+    echo "[AVP-AUTHORIZER] No domain configured for $visibility, skipping AuthorizationPolicy generation"
+    return 0
+  fi
+
+  if [[ "$num_routes" -eq 0 ]]; then
+    echo "[AVP-AUTHORIZER] No $visibility routes configured, skipping AuthorizationPolicy generation"
+    return 0
+  fi
+
+  # Extract unique paths from routes with wildcard patterns
+  local paths_array='[]'
+  paths_array=$(echo "$routes_json" | jq -r '
+    [.[] |
+      select(.path != null and .path != "") |
+      .path |
+      . as $path |
+      [$path, ($path + "/*")]
+    ] | flatten | unique')
+
+  # Build hosts array (just the domain)
+  local hosts_array
+  hosts_array=$(jq -n --arg domain "$domain" '[$domain]')
+
+  # Create context for gomplate
+  local authz_context
+  authz_context=$(jq -n \
+    --arg service_slug "$SERVICE_SLUG" \
+    --arg service_id "$SERVICE_ID" \
+    --arg k8s_namespace "$K8S_NAMESPACE" \
+    --arg gateway_name "$gateway_name" \
+    --argjson hosts "$hosts_array" \
+    --argjson paths "$paths_array" \
+    '{
+      service_slug: $service_slug,
+      service_id: $service_id,
+      k8s_namespace: $k8s_namespace,
+      gateway_name: $gateway_name,
+      hosts: $hosts,
+      paths: $paths
+    }')
+
+  # Output file for this visibility
+  local authz_file="$OUTPUT_DIR/authz-policy-${SERVICE_ID}-${visibility}.yaml"
+  local context_file="$OUTPUT_DIR/authz-context-${SERVICE_ID}-${visibility}.json"
+
+  # Save context for debugging
+  echo "$authz_context" > "$context_file"
+
+  # Generate Authorization Policy using gomplate
+  local template_file="$OVERRIDES_PATH/templates/policies.yaml.tpl"
+
+  echo "[AVP-AUTHORIZER] Generating $visibility AuthorizationPolicy from template: $template_file"
+  gomplate -c .="$context_file" \
+    -f "$template_file" \
+    -o "$authz_file"
+
+  # Clean up context file
+  rm "$context_file"
+
+  echo "[AVP-AUTHORIZER] ✅ $visibility AuthorizationPolicy created: $authz_file"
+}
+
+# Get namespace
+K8S_NAMESPACE="${NAMESPACE_OVERRIDE:-nullplatform}"
+
+# Generate Authorization Policy for public routes
+if [[ -n "${PUBLIC_ROUTES_JSON:-}" ]] && [[ -n "${PUBLIC_DOMAIN:-}" ]]; then
+  generate_authz_policy "public" "$PUBLIC_ROUTES_JSON" "$PUBLIC_DOMAIN" "$PUBLIC_GATEWAY_NAME"
+fi
+
+# Generate Authorization Policy for private routes
+if [[ -n "${PRIVATE_ROUTES_JSON:-}" ]] && [[ -n "${PRIVATE_DOMAIN:-}" ]]; then
+  generate_authz_policy "private" "$PRIVATE_ROUTES_JSON" "$PRIVATE_DOMAIN" "$PRIVATE_GATEWAY_NAME"
+fi
+
+echo "[AVP-AUTHORIZER] AuthorizationPolicy manifest generation completed"
+echo "[AVP-AUTHORIZER] Manifests should be available in: ${OUTPUT_DIR}"
